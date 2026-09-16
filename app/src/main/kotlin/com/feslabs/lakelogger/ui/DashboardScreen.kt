@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -27,11 +29,23 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(viewModel: ReadingViewModel = viewModel()) {
+fun DashboardScreen(
+    viewModel: ReadingViewModel = viewModel(),
+    onOpenDeviceDiagnostics: () -> Unit = {},
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Lake Logger") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Lake Logger") },
+                actions = {
+                    IconButton(onClick = onOpenDeviceDiagnostics) {
+                        Icon(Icons.Filled.Build, contentDescription = "Device Diagnostics")
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { viewModel.refreshAll() }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh")

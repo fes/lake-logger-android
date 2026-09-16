@@ -4,6 +4,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.darkColorScheme
@@ -25,7 +29,12 @@ fun LakeLoggerTheme(darkTheme: Boolean = androidx.compose.foundation.isSystemInD
 fun LakeLoggerApp() {
     LakeLoggerTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            DashboardScreen()
+            var showDeviceDiagnostics by remember { mutableStateOf(false) }
+            if (showDeviceDiagnostics) {
+                DeviceDiagnosticsScreen(onBack = { showDeviceDiagnostics = false })
+            } else {
+                DashboardScreen(onOpenDeviceDiagnostics = { showDeviceDiagnostics = true })
+            }
         }
     }
 }

@@ -1,0 +1,153 @@
+package com.feslabs.lakelogger.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.feslabs.lakelogger.data.DeviceApiClient
+import com.feslabs.lakelogger.data.DeviceProbeReading
+import com.feslabs.lakelogger.data.DeviceSettingsStore
+import com.feslabs.lakelogger.data.DeviceStatus
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+
+data class DeviceDiagnosticsUiState(
+    val ipAddress: String = "",
+    val status: DeviceStatus? = null,
+    val probe: DeviceProbeReading? = null,
+    val isLoading: Boolean = false,
+    val isResetting: Boolean = false,
+    val errorMessage: String? = null,
+    val lastCheckedAtEpochMillis: Long? = null,
+)
+
+class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(application) {
+    private val settingsStore = DeviceSettingsStore(application)
+    private val api = DeviceApiClient(settingsStore)
+
+    private val _uiState = MutableStateFlow(DeviceDiagnosticsUiState())
+    val uiState: StateFlow<DeviceDiagnosticsUiState> = _uiState.asStateFlow()
+
+    // Raw JSON from the device's own responses, kept alongside the decoded
+    // models so an exported report includes every field the firmware
+    // returns -- not just the subset this app's UI displays.
+    private var lastStatusRawJson: String? = null
+    private var lastProbeRawJson: String? = null
+    private var lastErrorContext: String? = null
+
+    init {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(ipAddress = settingsStore.loadIpAddress().orEmpty())
+        }
+    }
+
+    fun onIpAddressChanged(value: String) {
+        _uiState.value = _uiState.value.copy(ipAddress = value)
+    }
+
+    fun saveAddress() {
+        viewModelScope.launch { settingsStore.saveIpAddress(_uiState.value.ipAddress) }
+    }
+
+    fun refreshStatus() {
+        saveAddress()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            try {
+                val result = api.fetchStatus()
+                lastStatusRawJson = result.rawJson
+                _uiState.value = _uiState.value.copy(
+                    status = result.value,
+                    isLoading = false,
+                    lastCheckedAtEpochMillis = System.currentTimeMillis(),
+                )
+            } catch (e: Exception) {
+                lastErrorContext = "GET /status failed: $e"
+                _uiState.value = _uiState.value.copy(
+                    status = null,
+                    isLoading = false,
+                    errorMessage = e.message,
+                )
+            }
+        }
+    }
+
+    fun triggerProbe() {
+        saveAddress()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            try {
+                val result = api.fetchProbe()
+                lastProbeRawJson = result.rawJson
+                _uiState.value = _uiState.value.copy(
+                    probe = result.value,
+                    isLoading = false,
+                    lastCheckedAtEpochMillis = System.currentTimeMillis(),
+                )
+            } catch (e: Exception) {
+                lastErrorContext = "GET /probe failed: $e"
+                _uiState.value = _uiState.value.copy(
+                    probe = null,
+                    isLoading = false,
+                    errorMessage = e.message,
+                )
+            }
+        }
+    }
+
+    fun rebootDevice() {
+        saveAddress()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isResetting = true, errorMessage = null)
+            try {
+                api.reset()
+                lastStatusRawJson = null
+                lastProbeRawJson = null
+                _uiState.value = _uiState.value.copy(status = null, probe = null, isResetting = false)
+            } catch (e: Exception) {
+                lastErrorContext = "GET /reset failed: $e"
+                _uiState.value = _uiState.value.copy(isResetting = false, errorMessage = e.message)
+            }
+        }
+    }
+
+    val hasReportContent: Boolean
+        get() = lastStatusRawJson != null || lastProbeRawJson != null || _uiState.value.errorMessage != null
+
+    /**
+     * Builds a plain-text diagnostic report -- app/device metadata plus the
+     * full raw `/status` and `/probe` JSON last fetched -- formatted so a
+     * user can paste it directly into an AI assistant (Copilot, ChatGPT,
+     * etc.) or a support ticket without needing to screenshot anything.
+     */
+    fun diagnosticsReportText(): String {
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val state = _uiState.value
+        val lines = mutableListOf<String>()
+        lines += "Lake Logger device diagnostics report"
+        lines += "Generated: ${isoFormat.format(Date())}"
+        lines += "Device address: ${state.ipAddress.ifEmpty { "(not set)" }}"
+        state.lastCheckedAtEpochMillis?.let {
+            lines += "Last successful check: ${isoFormat.format(Date(it))}"
+        }
+        state.errorMessage?.let { lines += "Most recent error: $it" }
+        lastErrorContext?.let { lines += "Error context: $it" }
+
+        lines += ""
+        lines += "--- /status ---"
+        lines += lastStatusRawJson ?: "(not fetched yet)"
+
+        lines += ""
+        lines += "--- /probe ---"
+        lines += lastProbeRawJson ?: "(not fetched yet)"
+
+        return lines.joinToString("\n")
+    }
+}

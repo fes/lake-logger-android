@@ -71,4 +71,15 @@ object LakeFormat {
             else -> "${seconds / 86_400}d ago"
         }
     }
+
+    /** A short duration string for a raw seconds count (e.g. device uptime). */
+    fun relativeDuration(totalSeconds: Long?): String {
+        if (totalSeconds == null || totalSeconds < 0) return "—"
+        return when {
+            totalSeconds < 60 -> "${totalSeconds}s"
+            totalSeconds < 3600 -> "${totalSeconds / 60}m"
+            totalSeconds < 86_400 -> "${totalSeconds / 3600}h ${(totalSeconds % 3600) / 60}m"
+            else -> "${totalSeconds / 86_400}d ${(totalSeconds % 86_400) / 3600}h"
+        }
+    }
 }
