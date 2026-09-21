@@ -71,6 +71,35 @@ data class DeviceStatus(
     @SerialName("rs485_weather_bridge_parity_error") val rs485WeatherBridgeParityError: Boolean? = null,
     @SerialName("rs485_weather_bridge_framing_error") val rs485WeatherBridgeFramingError: Boolean? = null,
     @SerialName("rs485_weather_bridge_break_detected") val rs485WeatherBridgeBreakDetected: Boolean? = null,
+
+    @SerialName("display_behavior") val displayBehavior: String? = null,
+    @SerialName("display_backend") val displayBackend: String? = null,
+    @SerialName("display_present") val displayPresent: Boolean? = null,
+    @SerialName("display_awake") val displayAwake: Boolean? = null,
+    @SerialName("display_wake_remaining_ms") val displayWakeRemainingMs: Long? = null,
+    @SerialName("last_display_wake_request_utc") val lastDisplayWakeRequestUtc: String? = null,
+    @SerialName("last_display_wake_request_age") val lastDisplayWakeRequestAge: String? = null,
+    @SerialName("last_display_refresh_utc") val lastDisplayRefreshUtc: String? = null,
+    @SerialName("last_display_refresh_age") val lastDisplayRefreshAge: String? = null,
+    @SerialName("display_refresh_count") val displayRefreshCount: Int? = null,
+    @SerialName("display_i2c_recovery_count") val displayI2cRecoveryCount: Int? = null,
+    @SerialName("display_link_failures") val displayLinkFailures: Int? = null,
+    @SerialName("display_last_error") val displayLastError: String? = null,
+)
+
+/**
+ * Mirrors the response shape shared by every `/display/<command>` endpoint
+ * (`status`, `refresh`, `clear`, `pause`, `resume`, `reboot`, `sleep`): the
+ * firmware runs the requested display command and reports whether it
+ * succeeded, which backend is attached, and any human-readable detail.
+ * `GET /display/status` queries without side effects; the rest are
+ * POST-only since they change display state.
+ */
+@Serializable
+data class DeviceDisplayCommandResult(
+    @SerialName("ok") val ok: Boolean? = null,
+    @SerialName("display_backend") val displayBackend: String? = null,
+    @SerialName("response") val response: String? = null,
 )
 
 /**

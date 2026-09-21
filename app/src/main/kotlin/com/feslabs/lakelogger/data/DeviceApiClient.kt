@@ -28,8 +28,8 @@ data class DeviceApiResult<T>(val value: T, val rawJson: String)
 
 /**
  * Thin client for the logger device's own local HTTP API (`/status`,
- * `/probe`, `/reset`, `/rs485/selftest`), served directly by the device on
- * the LAN -- distinct
+ * `/probe`, `/reset`, `/rs485/selftest`, `/display/<command>`), served directly by
+ * the device on the LAN -- distinct
  * from [LakeApiClient], which talks to the feslabs.com cloud API. Only
  * reachable when the phone and the device are on the same local network.
  */
@@ -90,6 +90,23 @@ class DeviceApiClient(
         val body = post("rs485/selftest")
         val value = try {
             json.decodeFromString(DeviceRs485SelfTestResult.serializer(), body)
+        } catch (e: Exception) {
+            throw DeviceApiException.Decoding(e)
+        }
+        return DeviceApiResult(value, body)
+    }
+
+    /**
+     * Runs a display command (`status`, `refresh`, `clear`, `pause`,
+     * `resume`, `reboot`, or `sleep`) via `/display/<command>`, the
+     * Inkplate e-paper display's own local control API. `status` is a
+     * read-only GET; every other command mutates display state and is
+     * POST-only by firmware design.
+     */
+    suspend fun runDisplayCommand(command: String): DeviceApiResult<DeviceDisplayCommandResult> {
+        val body = if (command == "status") get("display/status") else post("display/$command")
+        val value = try {
+            json.decodeFromString(DeviceDisplayCommandResult.serializer(), body)
         } catch (e: Exception) {
             throw DeviceApiException.Decoding(e)
         }

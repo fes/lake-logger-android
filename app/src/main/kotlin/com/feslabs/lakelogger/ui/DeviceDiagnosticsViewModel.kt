@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.feslabs.lakelogger.data.DeviceApiClient
+import com.feslabs.lakelogger.data.DeviceDisplayCommandResult
 import com.feslabs.lakelogger.data.DeviceProbeReading
 import com.feslabs.lakelogger.data.DeviceRs485SelfTestResult
 import com.feslabs.lakelogger.data.DeviceSettingsStore
@@ -22,9 +23,12 @@ data class DeviceDiagnosticsUiState(
     val status: DeviceStatus? = null,
     val probe: DeviceProbeReading? = null,
     val selfTest: DeviceRs485SelfTestResult? = null,
+    val displayResult: DeviceDisplayCommandResult? = null,
+    val lastDisplayCommand: String? = null,
     val isLoading: Boolean = false,
     val isResetting: Boolean = false,
     val isRunningSelfTest: Boolean = false,
+    val isRunningDisplayCommand: Boolean = false,
     val errorMessage: String? = null,
     val lastCheckedAtEpochMillis: Long? = null,
 )
@@ -42,6 +46,7 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
     private var lastStatusRawJson: String? = null
     private var lastProbeRawJson: String? = null
     private var lastSelfTestRawJson: String? = null
+    private var lastDisplayCommandRawJson: String? = null
     private var lastErrorContext: String? = null
 
     init {
@@ -113,10 +118,13 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
                 lastStatusRawJson = null
                 lastProbeRawJson = null
                 lastSelfTestRawJson = null
+                lastDisplayCommandRawJson = null
                 _uiState.value = _uiState.value.copy(
                     status = null,
                     probe = null,
                     selfTest = null,
+                    displayResult = null,
+                    lastDisplayCommand = null,
                     isResetting = false,
                 )
             } catch (e: Exception) {
@@ -157,7 +165,38 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
 
     val hasReportContent: Boolean
         get() = lastStatusRawJson != null || lastProbeRawJson != null ||
-            lastSelfTestRawJson != null || _uiState.value.errorMessage != null
+            lastSelfTestRawJson != null || lastDisplayCommandRawJson != null ||
+            _uiState.value.errorMessage != null
+
+    /**
+     * Runs a display command (`status`, `refresh`, `clear`, `pause`,
+     * `resume`, `reboot`, or `sleep`) via `/display/<command>`, the
+     * Inkplate e-paper display's own local control API. `status` is
+     * read-only; the rest actively change the attached display's state.
+     */
+    fun triggerDisplayCommand(command: String) {
+        saveAddress()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRunningDisplayCommand = true, errorMessage = null)
+            try {
+                val result = api.runDisplayCommand(command)
+                lastDisplayCommandRawJson = result.rawJson
+                _uiState.value = _uiState.value.copy(
+                    displayResult = result.value,
+                    lastDisplayCommand = command,
+                    isRunningDisplayCommand = false,
+                    lastCheckedAtEpochMillis = System.currentTimeMillis(),
+                )
+            } catch (e: Exception) {
+                lastErrorContext = "/display/$command failed: $e"
+                _uiState.value = _uiState.value.copy(
+                    displayResult = null,
+                    isRunningDisplayCommand = false,
+                    errorMessage = e.message,
+                )
+            }
+        }
+    }
 
     /**
      * Builds a plain-text diagnostic report -- app/device metadata plus the
@@ -191,6 +230,10 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
         lines += ""
         lines += "--- /rs485/selftest ---"
         lines += lastSelfTestRawJson ?: "(not run yet)"
+
+        lines += ""
+        lines += "--- /display/${state.lastDisplayCommand ?: "?"} ---"
+        lines += lastDisplayCommandRawJson ?: "(not run yet)"
 
         return lines.joinToString("\n")
     }

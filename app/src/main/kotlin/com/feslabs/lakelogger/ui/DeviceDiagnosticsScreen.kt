@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.feslabs.lakelogger.data.DeviceDisplayCommandResult
 import com.feslabs.lakelogger.data.DeviceProbeReading
 import com.feslabs.lakelogger.data.DeviceRs485SelfTestResult
 import com.feslabs.lakelogger.data.DeviceStatus
@@ -106,12 +107,16 @@ fun DeviceDiagnosticsScreen(onBack: () -> Unit) {
                         enabled = !uiState.isRunningSelfTest,
                     ) { Text("Run RS-485 self-test") }
                 }
+                DisplayCommandButtons(
+                    onCommand = viewModel::triggerDisplayCommand,
+                    enabled = !uiState.isRunningDisplayCommand,
+                )
                 TextButton(onClick = { showResetConfirmation = true }) {
                     Text("Reboot device", color = MaterialTheme.colorScheme.error)
                 }
             }
 
-            if (uiState.isLoading || uiState.isResetting || uiState.isRunningSelfTest) {
+            if (uiState.isLoading || uiState.isResetting || uiState.isRunningSelfTest || uiState.isRunningDisplayCommand) {
                 item { CircularProgressIndicator() }
             }
 
@@ -131,6 +136,10 @@ fun DeviceDiagnosticsScreen(onBack: () -> Unit) {
 
             uiState.selfTest?.let { selfTest ->
                 item { SelfTestSummary(selfTest) }
+            }
+
+            uiState.displayResult?.let { displayResult ->
+                item { DisplayResultSummary(displayResult, command = uiState.lastDisplayCommand) }
             }
 
             if (viewModel.hasReportContent) {
@@ -198,6 +207,20 @@ private fun StatusSummary(status: DeviceStatus) {
         DiagnosticRow("Battery voltage", LakeFormat.volts(status.cachedProbeBatteryOutputVoltageV))
         DiagnosticRow("Solar voltage", LakeFormat.volts(status.cachedProbeSolarInputVoltageV))
         DiagnosticRow("Battery charge", LakeFormat.percent(status.batteryChargeLevelPctApprox))
+
+        SectionHeader("Display")
+        DiagnosticRow("Behavior", status.displayBehavior)
+        DiagnosticRow("Backend", status.displayBackend)
+        DiagnosticRow("Present", status.displayPresent?.let { if (it) "Yes" else "No" })
+        DiagnosticRow("Awake", status.displayAwake?.let { if (it) "Yes" else "No" })
+        DiagnosticRow("Last refresh", status.lastDisplayRefreshAge)
+        DiagnosticRow("Refresh count", status.displayRefreshCount?.toString())
+        DiagnosticRow("I2C recovery count", status.displayI2cRecoveryCount?.toString())
+        DiagnosticRow("Link failures", status.displayLinkFailures?.toString())
+        DiagnosticRow(
+            "Last error",
+            status.displayLastError?.takeIf { it.isNotEmpty() } ?: "None",
+        )
 
         SectionHeader("RS-485 bridge")
         DiagnosticRow("Modbus failures (total)", status.modbusFailureTotal?.toString())
@@ -306,6 +329,32 @@ private fun BridgeHealthRow(
     }
 }
 
+/**
+ * Buttons for the Inkplate e-paper display's own local control API
+ * (`/display/<command>`). `status` is read-only; the rest actively change
+ * the attached display's state, so they're grouped separately from the
+ * status/probe/self-test actions above.
+ */
+@Composable
+private fun DisplayCommandButtons(onCommand: (String) -> Unit, enabled: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SectionHeader("Display")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onCommand("status") }, enabled = enabled) { Text("Status") }
+            OutlinedButton(onClick = { onCommand("refresh") }, enabled = enabled) { Text("Refresh") }
+            OutlinedButton(onClick = { onCommand("clear") }, enabled = enabled) { Text("Clear") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onCommand("pause") }, enabled = enabled) { Text("Pause") }
+            OutlinedButton(onClick = { onCommand("resume") }, enabled = enabled) { Text("Resume") }
+            OutlinedButton(onClick = { onCommand("sleep") }, enabled = enabled) { Text("Sleep") }
+        }
+        TextButton(onClick = { onCommand("reboot") }, enabled = enabled) {
+            Text("Reboot display", color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
 @Composable
 private fun ExportRow(context: Context, reportText: () -> String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -332,6 +381,20 @@ private fun ExportRow(context: Context, reportText: () -> String) {
                 context.startActivity(Intent.createChooser(shareIntent, "Share diagnostics report"))
             }) { Text("Share report…") }
         }
+    }
+}
+
+@Composable
+private fun DisplayResultSummary(result: DeviceDisplayCommandResult, command: String?) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SectionHeader("Display command result")
+        DiagnosticRow("Command", command)
+        DiagnosticRow("Result", result.ok?.let { if (it) "OK" else "Failed" })
+        DiagnosticRow("Display backend", result.displayBackend)
+        DiagnosticRow(
+            "Response detail",
+            result.response?.takeIf { it.isNotEmpty() } ?: "None",
+        )
     }
 }
 
