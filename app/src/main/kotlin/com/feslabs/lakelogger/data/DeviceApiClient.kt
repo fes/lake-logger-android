@@ -6,6 +6,7 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -27,7 +28,8 @@ data class DeviceApiResult<T>(val value: T, val rawJson: String)
 
 /**
  * Thin client for the logger device's own local HTTP API (`/status`,
- * `/probe`, `/reset`), served directly by the device on the LAN -- distinct
+ * `/probe`, `/reset`, `/rs485/selftest`), served directly by the device on
+ * the LAN -- distinct
  * from [LakeApiClient], which talks to the feslabs.com cloud API. Only
  * reachable when the phone and the device are on the same local network.
  */
@@ -77,12 +79,39 @@ class DeviceApiClient(
         }
     }
 
-    private suspend fun get(path: String): String {
+    /**
+     * Runs the device's internal RS485 bridge self-test
+     * (`POST /rs485/selftest`). This is a loopback test of each bridge's
+     * SC16IS752 UART core only -- it does not exercise the physical bus or
+     * the downstream sensor -- and is disruptive to in-flight Modbus
+     * transactions, which is why the firmware requires POST rather than GET.
+     */
+    suspend fun triggerRs485SelfTest(): DeviceApiResult<DeviceRs485SelfTestResult> {
+        val body = post("rs485/selftest")
+        val value = try {
+            json.decodeFromString(DeviceRs485SelfTestResult.serializer(), body)
+        } catch (e: Exception) {
+            throw DeviceApiException.Decoding(e)
+        }
+        return DeviceApiResult(value, body)
+    }
+
+    private suspend fun get(path: String): String = send(path, "GET")
+
+    private suspend fun post(path: String): String = send(path, "POST")
+
+    private suspend fun send(path: String, method: String): String {
         val baseUrl = settingsStore.loadIpAddress()?.trim()
         if (baseUrl.isNullOrEmpty()) throw DeviceApiException.NoAddressConfigured
 
         return suspendCancellableCoroutine { continuation ->
-            val request = Request.Builder().url("http://$baseUrl/$path").get().build()
+            val requestBuilder = Request.Builder().url("http://$baseUrl/$path")
+            if (method == "POST") {
+                requestBuilder.post("".toRequestBody(null))
+            } else {
+                requestBuilder.get()
+            }
+            val request = requestBuilder.build()
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
 

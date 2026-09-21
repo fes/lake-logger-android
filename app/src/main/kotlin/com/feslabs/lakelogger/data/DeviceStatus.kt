@@ -51,6 +51,41 @@ data class DeviceStatus(
     @SerialName("cached_probe_battery_output_voltage_v") val cachedProbeBatteryOutputVoltageV: Double? = null,
     @SerialName("cached_probe_solar_input_voltage_v") val cachedProbeSolarInputVoltageV: Double? = null,
     @SerialName("battery_charge_level_pct_approx") val batteryChargeLevelPctApprox: Double? = null,
+
+    @SerialName("modbus_failure_total") val modbusFailureTotal: Int? = null,
+    @SerialName("consecutive_solinst_modbus_failures") val consecutiveSolinstModbusFailures: Int? = null,
+    @SerialName("consecutive_weather_modbus_failures") val consecutiveWeatherModbusFailures: Int? = null,
+    @SerialName("rs485_bridge_recovery_attempts") val rs485BridgeRecoveryAttempts: Int? = null,
+    @SerialName("rs485_bridge_recovery_successes") val rs485BridgeRecoverySuccesses: Int? = null,
+
+    @SerialName("rs485_solinst_bridge_health_supported") val rs485SolinstBridgeHealthSupported: Boolean? = null,
+    @SerialName("rs485_solinst_bridge_line_status_register") val rs485SolinstBridgeLineStatusRegister: Int? = null,
+    @SerialName("rs485_solinst_bridge_overrun_error") val rs485SolinstBridgeOverrunError: Boolean? = null,
+    @SerialName("rs485_solinst_bridge_parity_error") val rs485SolinstBridgeParityError: Boolean? = null,
+    @SerialName("rs485_solinst_bridge_framing_error") val rs485SolinstBridgeFramingError: Boolean? = null,
+    @SerialName("rs485_solinst_bridge_break_detected") val rs485SolinstBridgeBreakDetected: Boolean? = null,
+
+    @SerialName("rs485_weather_bridge_health_supported") val rs485WeatherBridgeHealthSupported: Boolean? = null,
+    @SerialName("rs485_weather_bridge_line_status_register") val rs485WeatherBridgeLineStatusRegister: Int? = null,
+    @SerialName("rs485_weather_bridge_overrun_error") val rs485WeatherBridgeOverrunError: Boolean? = null,
+    @SerialName("rs485_weather_bridge_parity_error") val rs485WeatherBridgeParityError: Boolean? = null,
+    @SerialName("rs485_weather_bridge_framing_error") val rs485WeatherBridgeFramingError: Boolean? = null,
+    @SerialName("rs485_weather_bridge_break_detected") val rs485WeatherBridgeBreakDetected: Boolean? = null,
+)
+
+/**
+ * Mirrors the on-demand `POST /rs485/selftest` endpoint: an internal
+ * loopback test of each RS485 bridge's SC16IS752 UART core, independent of
+ * the physical bus wiring or the downstream sensor. Deliberately POST-only
+ * and manually triggered since it is disruptive to any in-flight
+ * transaction on these channels.
+ */
+@Serializable
+data class DeviceRs485SelfTestResult(
+    @SerialName("solinst_selftest_supported") val solinstSelftestSupported: Boolean? = null,
+    @SerialName("solinst_selftest_passed") val solinstSelftestPassed: Boolean? = null,
+    @SerialName("weather_selftest_supported") val weatherSelftestSupported: Boolean? = null,
+    @SerialName("weather_selftest_passed") val weatherSelftestPassed: Boolean? = null,
 )
 
 /**

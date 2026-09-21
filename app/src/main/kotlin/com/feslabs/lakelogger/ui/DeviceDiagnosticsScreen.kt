@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.feslabs.lakelogger.data.DeviceProbeReading
+import com.feslabs.lakelogger.data.DeviceRs485SelfTestResult
 import com.feslabs.lakelogger.data.DeviceStatus
 import com.feslabs.lakelogger.data.LakeFormat
 
@@ -96,12 +97,21 @@ fun DeviceDiagnosticsScreen(onBack: () -> Unit) {
                     Button(onClick = viewModel::refreshStatus) { Text("Check status") }
                     OutlinedButton(onClick = viewModel::triggerProbe) { Text("Trigger probe") }
                 }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedButton(
+                        onClick = viewModel::triggerSelfTest,
+                        enabled = !uiState.isRunningSelfTest,
+                    ) { Text("Run RS-485 self-test") }
+                }
                 TextButton(onClick = { showResetConfirmation = true }) {
                     Text("Reboot device", color = MaterialTheme.colorScheme.error)
                 }
             }
 
-            if (uiState.isLoading || uiState.isResetting) {
+            if (uiState.isLoading || uiState.isResetting || uiState.isRunningSelfTest) {
                 item { CircularProgressIndicator() }
             }
 
@@ -117,6 +127,10 @@ fun DeviceDiagnosticsScreen(onBack: () -> Unit) {
 
             uiState.probe?.let { probe ->
                 item { ProbeSummary(probe) }
+            }
+
+            uiState.selfTest?.let { selfTest ->
+                item { SelfTestSummary(selfTest) }
             }
 
             if (viewModel.hasReportContent) {
@@ -184,6 +198,29 @@ private fun StatusSummary(status: DeviceStatus) {
         DiagnosticRow("Battery voltage", LakeFormat.volts(status.cachedProbeBatteryOutputVoltageV))
         DiagnosticRow("Solar voltage", LakeFormat.volts(status.cachedProbeSolarInputVoltageV))
         DiagnosticRow("Battery charge", LakeFormat.percent(status.batteryChargeLevelPctApprox))
+
+        SectionHeader("RS-485 bridge")
+        DiagnosticRow("Modbus failures (total)", status.modbusFailureTotal?.toString())
+        DiagnosticRow("Solinst failures (consecutive)", status.consecutiveSolinstModbusFailures?.toString())
+        DiagnosticRow("Weather failures (consecutive)", status.consecutiveWeatherModbusFailures?.toString())
+        DiagnosticRow("Bridge recovery attempts", status.rs485BridgeRecoveryAttempts?.toString())
+        DiagnosticRow("Bridge recovery successes", status.rs485BridgeRecoverySuccesses?.toString())
+        BridgeHealthRow(
+            label = "Solinst channel",
+            supported = status.rs485SolinstBridgeHealthSupported,
+            overrun = status.rs485SolinstBridgeOverrunError,
+            parity = status.rs485SolinstBridgeParityError,
+            framing = status.rs485SolinstBridgeFramingError,
+            breakDetected = status.rs485SolinstBridgeBreakDetected,
+        )
+        BridgeHealthRow(
+            label = "Weather channel",
+            supported = status.rs485WeatherBridgeHealthSupported,
+            overrun = status.rs485WeatherBridgeOverrunError,
+            parity = status.rs485WeatherBridgeParityError,
+            framing = status.rs485WeatherBridgeFramingError,
+            breakDetected = status.rs485WeatherBridgeBreakDetected,
+        )
     }
 }
 
@@ -196,6 +233,76 @@ private fun ProbeSummary(probe: DeviceProbeReading) {
         DiagnosticRow("Water temperature", LakeFormat.celsius(probe.temperatureC))
         DiagnosticRow("Air temperature", LakeFormat.celsius(probe.weatherAirTemperatureC))
         DiagnosticRow("Humidity", LakeFormat.percent(probe.weatherRelativeHumidityPct))
+    }
+}
+
+@Composable
+private fun SelfTestSummary(selfTest: DeviceRs485SelfTestResult) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SectionHeader("RS-485 self-test result")
+        SelfTestRow("Solinst channel", selfTest.solinstSelftestSupported, selfTest.solinstSelftestPassed)
+        SelfTestRow("Weather channel", selfTest.weatherSelftestSupported, selfTest.weatherSelftestPassed)
+        Text(
+            "An internal loopback test of the bridge/UART core, not the physical bus or " +
+                "sensors -- it can pass even with a sensor disconnected.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * A single "channel: pass/fail" row for the on-demand self-test result,
+ * styled to stand out (green/red) since it directly answers "is the shared
+ * bridge chip itself OK" independent of sensor wiring or responsiveness.
+ */
+@Composable
+private fun SelfTestRow(label: String, supported: Boolean?, passed: Boolean?) {
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        val (text, color) = when {
+            supported == false -> "Not supported" to MaterialTheme.colorScheme.onSurfaceVariant
+            passed == true -> "Passed" to MaterialTheme.colorScheme.primary
+            passed == false -> "Failed" to MaterialTheme.colorScheme.error
+            else -> "—" to MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = color)
+    }
+}
+
+/**
+ * A compact "no errors" / "flag list" row for continuous bridge
+ * line-status monitoring (distinct from the on-demand self-test above).
+ */
+@Composable
+private fun BridgeHealthRow(
+    label: String,
+    supported: Boolean?,
+    overrun: Boolean?,
+    parity: Boolean?,
+    framing: Boolean?,
+    breakDetected: Boolean?,
+) {
+    val flags = listOfNotNull(
+        "overrun".takeIf { overrun == true },
+        "parity".takeIf { parity == true },
+        "framing".takeIf { framing == true },
+        "break".takeIf { breakDetected == true },
+    )
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        val (text, color) = when {
+            supported == false -> "Not supported" to MaterialTheme.colorScheme.onSurfaceVariant
+            flags.isEmpty() -> "No errors" to MaterialTheme.colorScheme.onSurfaceVariant
+            else -> flags.joinToString(", ") to MaterialTheme.colorScheme.tertiary
+        }
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = color)
     }
 }
 

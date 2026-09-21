@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.feslabs.lakelogger.data.DeviceApiClient
 import com.feslabs.lakelogger.data.DeviceProbeReading
+import com.feslabs.lakelogger.data.DeviceRs485SelfTestResult
 import com.feslabs.lakelogger.data.DeviceSettingsStore
 import com.feslabs.lakelogger.data.DeviceStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,8 +21,10 @@ data class DeviceDiagnosticsUiState(
     val ipAddress: String = "",
     val status: DeviceStatus? = null,
     val probe: DeviceProbeReading? = null,
+    val selfTest: DeviceRs485SelfTestResult? = null,
     val isLoading: Boolean = false,
     val isResetting: Boolean = false,
+    val isRunningSelfTest: Boolean = false,
     val errorMessage: String? = null,
     val lastCheckedAtEpochMillis: Long? = null,
 )
@@ -38,6 +41,7 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
     // returns -- not just the subset this app's UI displays.
     private var lastStatusRawJson: String? = null
     private var lastProbeRawJson: String? = null
+    private var lastSelfTestRawJson: String? = null
     private var lastErrorContext: String? = null
 
     init {
@@ -108,7 +112,13 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
                 api.reset()
                 lastStatusRawJson = null
                 lastProbeRawJson = null
-                _uiState.value = _uiState.value.copy(status = null, probe = null, isResetting = false)
+                lastSelfTestRawJson = null
+                _uiState.value = _uiState.value.copy(
+                    status = null,
+                    probe = null,
+                    selfTest = null,
+                    isResetting = false,
+                )
             } catch (e: Exception) {
                 lastErrorContext = "GET /reset failed: $e"
                 _uiState.value = _uiState.value.copy(isResetting = false, errorMessage = e.message)
@@ -116,8 +126,38 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
+    /**
+     * Runs the internal RS485 bridge self-test on the device
+     * (`POST /rs485/selftest`). Only exercises the SC16IS752 bridge/UART
+     * core, not the physical bus or downstream sensor -- so it can pass
+     * even when a sensor itself is disconnected or unresponsive.
+     */
+    fun triggerSelfTest() {
+        saveAddress()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRunningSelfTest = true, errorMessage = null)
+            try {
+                val result = api.triggerRs485SelfTest()
+                lastSelfTestRawJson = result.rawJson
+                _uiState.value = _uiState.value.copy(
+                    selfTest = result.value,
+                    isRunningSelfTest = false,
+                    lastCheckedAtEpochMillis = System.currentTimeMillis(),
+                )
+            } catch (e: Exception) {
+                lastErrorContext = "POST /rs485/selftest failed: $e"
+                _uiState.value = _uiState.value.copy(
+                    selfTest = null,
+                    isRunningSelfTest = false,
+                    errorMessage = e.message,
+                )
+            }
+        }
+    }
+
     val hasReportContent: Boolean
-        get() = lastStatusRawJson != null || lastProbeRawJson != null || _uiState.value.errorMessage != null
+        get() = lastStatusRawJson != null || lastProbeRawJson != null ||
+            lastSelfTestRawJson != null || _uiState.value.errorMessage != null
 
     /**
      * Builds a plain-text diagnostic report -- app/device metadata plus the
@@ -147,6 +187,10 @@ class DeviceDiagnosticsViewModel(application: Application) : AndroidViewModel(ap
         lines += ""
         lines += "--- /probe ---"
         lines += lastProbeRawJson ?: "(not fetched yet)"
+
+        lines += ""
+        lines += "--- /rs485/selftest ---"
+        lines += lastSelfTestRawJson ?: "(not run yet)"
 
         return lines.joinToString("\n")
     }
